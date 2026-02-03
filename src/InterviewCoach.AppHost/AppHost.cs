@@ -6,7 +6,7 @@ var mcpMarkItDown = builder.AddDockerfile(ResourceConstants.McpMarkItDown, "../I
                            .WithHttpEndpoint(3001, 3001)
                            .WithArgs("--http", "--host", "0.0.0.0", "--port", "3001");
 
-var sqlite = builder.AddSqlite("sqlite", databaseFileName: "interviewcoach.db")
+var sqlite = builder.AddSqlite(ResourceConstants.Sqlite, databaseFileName: ResourceConstants.DatabaseName)
                     .WithSqliteWeb();
 
 var mcpInterviewData = builder.AddProject<Projects.InterviewCoach_Mcp_InterviewData>(ResourceConstants.McpInterviewData)
@@ -27,4 +27,4 @@ var webUI = builder.AddProject<Projects.InterviewCoach_WebUI>(ResourceConstants.
                    .WithReference(agent)
                    .WaitFor(agent);
 
-builder.Build().Run();
+await builder.Build().RunAsync();
