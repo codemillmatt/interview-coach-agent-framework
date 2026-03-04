@@ -1,0 +1,26 @@
+{
+  "skill_name": "docs-educator",
+  "evals": [
+    {
+      "id": 0,
+      "prompt": "The docs/providers/README.md feels like a dry reference list. Can you make it more helpful for someone who doesn't know which LLM provider to pick?",
+      "expected_output": "An improved providers README that helps readers understand the tradeoffs between providers and make an informed choice, with context on when to use each one.",
+      "files": ["docs/providers/README.md"],
+      "assertions": []
+    },
+    {
+      "id": 1,
+      "prompt": "Review docs/ARCHITECTURE.md and improve it so someone new to the project actually understands why things are separated the way they are.",
+      "expected_output": "An improved architecture doc that explains the motivation behind each design decision, not just the structure.",
+      "files": ["docs/ARCHITECTURE.md"],
+      "assertions": []
+    },
+    {
+      "id": 2,
+      "prompt": "The Getting Started section in README.md just lists steps. Make it so someone understands what each step does and why, especially the Aspire and credentials parts.",
+      "expected_output": "An improved Getting Started section where each step includes brief context about what it does and why it matters.",
+      "files": ["README.md"],
+      "assertions": []
+    }
+  ]
+}
