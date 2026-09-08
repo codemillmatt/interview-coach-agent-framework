@@ -1,24 +1,31 @@
 var builder = DistributedApplication.CreateBuilder(args);
 
-// var foundry = builder.AddBicepTemplate("foundry", "../../infra/foundry.bicep");
+var config = builder.Configuration;
 
 var mcpMarkItDown = builder.AddContainer(ResourceConstants.McpMarkItDown, "mcp/markitdown", "latest")
-                           .WithExternalHttpEndpoints()
-                           .WithHttpEndpoint(3001, 3001)
+                           .WithHttpEndpoint(targetPort: 3001)
                            .WithArgs("--http", "--host", "0.0.0.0", "--port", "3001");
 
-var sqlite = builder.AddSqlite(ResourceConstants.Sqlite, databaseFileName: ResourceConstants.DatabaseName)
-                    .WithSqliteWeb();
+// Azure Cosmos DB (NoSQL). Uses the local emulator in run mode and provisions a managed
+// account when published. Aspire creates the database and container as resources, so no
+// runtime resource creation is required (see the EnsureCreatedAsync note in the MCP server).
+var cosmos = builder.AddAzureCosmosDB(ResourceConstants.Cosmos);
+if (builder.ExecutionContext.IsRunMode)
+{
+    cosmos.RunAsPreviewEmulator(emulator => emulator.WithDataExplorer());
+}
+
+var cosmosDb = cosmos.AddCosmosDatabase(ResourceConstants.CosmosDatabase);
+cosmosDb.AddContainer(ResourceConstants.CosmosContainer, "/id");
 
 var mcpInterviewData = builder.AddProject<Projects.InterviewCoach_Mcp_InterviewData>(ResourceConstants.McpInterviewData)
-                              .WithExternalHttpEndpoints()
-                              .WithReference(sqlite)
-                              .WaitFor(sqlite);
+                              .WithReference(cosmosDb)
+                              .WaitFor(cosmosDb);
 
 var agent = builder.AddProject<Projects.InterviewCoach_Agent>(ResourceConstants.Agent)
                    .WithExternalHttpEndpoints()
-                   .WithLlmReference(builder.Configuration, args)
-                   .WithEnvironment(ResourceConstants.LlmProvider, builder.Configuration[ResourceConstants.LlmProvider] ?? string.Empty)
+                   .WithLlmReference(config, args)
+                   .WithEnvironment("AZURE_TENANT_ID", config["AZURE_TENANT_ID"] ?? string.Empty)
                    .WithReference(mcpMarkItDown.GetEndpoint("http"))
                    .WithReference(mcpInterviewData)
                    .WaitFor(mcpMarkItDown)

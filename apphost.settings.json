@@ -8,32 +8,19 @@
     }
   },
 
-  "AgentMode": "LlmHandOff",
+  "AgentMode": "HandOff",
 
   "LlmProvider": "MicrosoftFoundry",
 
-  "GitHub": {
-    "Token": "{{GITHUB_PAT}}",
-    "Model": "openai/gpt-5-mini"
-  },
-
-  "Azure": {
-    "OpenAI": {
-      "Endpoint": "{{AZURE_OPENAI_ENDPOINT}}",
-      "ApiKey": "{{AZURE_OPENAI_API_KEY}}",
-      "DeploymentName": "gpt-5-mini"
-    }
-  },
-
   "MicrosoftFoundry": {
-    "Project": {
-      "Endpoint": "{{MICROSOFT_FOUNDRY_PROJECT_ENDPOINT}}",
-      "ApiKey": "{{MICROSOFT_FOUNDRY_PROJECT_API_KEY}}",
-      "DeploymentName": "gpt-5-mini"
-    }
+    "DeploymentName": "gpt-5-mini",
+    "ModelVersion": "2025-08-07",
+    "ModelFormat": "OpenAI",
+    "SkuName": "GlobalStandard",
+    "SkuCapacity": 100
   },
 
   "GitHubCopilot": {
-    "Token": "{{GITHUB_PAT}}"
+    "Model": "gpt-5-mini"
   }
 }

@@ -1,0 +1,8 @@
+{
+  "appHost": {
+    "path": "src/InterviewCoach.AppHost/InterviewCoach.AppHost.csproj"
+  },
+  "features": {
+    "defaultWatchEnabled": "true"
+  }
+}

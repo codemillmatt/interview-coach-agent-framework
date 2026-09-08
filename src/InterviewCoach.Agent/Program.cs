@@ -1,4 +1,10 @@
+using System.ClientModel.Primitives;
 using System.Collections.Concurrent;
+using System.Data.Common;
+
+using Azure.Identity;
+
+using GitHub.Copilot;
 
 using InterviewCoach.Agent;
 
@@ -10,6 +16,9 @@ using Microsoft.Extensions.AI;
 using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 
+using OpenAI;
+using OpenAI.Chat;
+
 var builder = WebApplication.CreateBuilder(args);
 var config = builder.Configuration;
 
@@ -17,7 +26,7 @@ builder.AddServiceDefaults();
 
 builder.Services.AddHttpClient("mcp-markitdown", client =>
 {
-    client.BaseAddress = new Uri("https+http://mcp-markitdown");
+    client.BaseAddress = new Uri("http://mcp-markitdown");
 });
 
 builder.Services.AddKeyedSingleton<McpClient>("mcp-markitdown", (sp, obj) =>
@@ -25,13 +34,11 @@ builder.Services.AddKeyedSingleton<McpClient>("mcp-markitdown", (sp, obj) =>
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
     var httpClient = sp.GetRequiredService<IHttpClientFactory>()
                        .CreateClient("mcp-markitdown");
-    var endpoint = builder.Environment.IsDevelopment() == true
-                 ? $"{httpClient.BaseAddress!.ToString().Replace("https+", string.Empty).TrimEnd('/')}"
-                 : $"{httpClient.BaseAddress!.ToString().Replace("+http", string.Empty).TrimEnd('/')}";
+    var endpoint = $"{httpClient.BaseAddress!.ToString().TrimEnd('/')}";
 
     var clientTransportOptions = new HttpClientTransportOptions()
     {
-        Endpoint = new Uri($"{endpoint}/sse")
+        Endpoint = new Uri($"{endpoint}/mcp")
     };
     var clientTransport = new HttpClientTransport(clientTransportOptions, httpClient, loggerFactory);
 
@@ -58,10 +65,13 @@ builder.Services.AddKeyedSingleton<McpClient>("mcp-interview-data", (sp, obj) =>
     var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
     var httpClient = sp.GetRequiredService<IHttpClientFactory>()
                        .CreateClient("mcp-interview-data");
+    var endpoint = builder.Environment.IsDevelopment() == true
+                 ? $"{httpClient.BaseAddress!.ToString().Replace("https+", string.Empty).TrimEnd('/')}"
+                 : $"{httpClient.BaseAddress!.ToString().Replace("+http", string.Empty).TrimEnd('/')}";
 
     var clientTransportOptions = new HttpClientTransportOptions()
     {
-        Endpoint = new Uri($"{httpClient.BaseAddress!.ToString().Replace("+http", string.Empty).TrimEnd('/')}/mcp")
+        Endpoint = new Uri($"{endpoint}/mcp")
     };
     var clientTransport = new HttpClientTransport(clientTransportOptions, httpClient, loggerFactory);
 
@@ -77,35 +87,74 @@ builder.Services.AddKeyedSingleton<McpClient>("mcp-interview-data", (sp, obj) =>
     return McpClient.CreateAsync(clientTransport, clientOptions, loggerFactory).GetAwaiter().GetResult();
 });
 
-if (config[Constants.LlmProvider] != "MicrosoftFoundry")
+var llmProvider = Enum.TryParse<LlmProvider>(config[Constants.LlmProvider], ignoreCase: true, out var parsedProvider)
+    ? parsedProvider
+    : throw new InvalidOperationException($"LLM provider not specified or invalid. Please set the '{Constants.LlmProvider}' configuration value.");
+
+if (llmProvider == LlmProvider.MicrosoftFoundry)
 {
-    builder.AddOpenAIClient("chat")
-           .AddChatClient();
+    var connection = new DbConnectionStringBuilder() { ConnectionString = config.GetConnectionString("chat") };
+    var cogServicesEndpoint = (connection.TryGetValue("Endpoint", out var endpointValue) ? endpointValue?.ToString() : throw new InvalidOperationException("Missing Foundry Endpoint")) ?? throw new InvalidOperationException("Missing Foundry Endpoint");
+    var uri = new Uri(cogServicesEndpoint);
+    var host = uri.Host.Split('.')[0];
+    var model = connection.TryGetValue("Deployment", out var modelValue) ? modelValue?.ToString() : throw new InvalidOperationException("Missing Foundry Model");
+
+    var credentialOptions = new DefaultAzureCredentialOptions();
+    if (config["AZURE_TENANT_ID"] is { } tenantId)
+    {
+        credentialOptions.TenantId = tenantId;
+    }
+    if (builder.Environment.IsDevelopment())
+    {
+        // Locally there is no Managed Identity, so the IMDS probe fails with an
+        // "unreachable network" error (169.254.169.254) that aborts the credential
+        // chain before it reaches the Azure CLI credential. Exclude it during local
+        // development so `az login` is used; it stays enabled when deployed to Azure.
+        credentialOptions.ExcludeManagedIdentityCredential = true;
+    }
+
+    BearerTokenPolicy tokenPolicy = new(
+        new DefaultAzureCredential(credentialOptions),
+        "https://cognitiveservices.azure.com/.default");
+
+#pragma warning disable OPENAI001
+    ChatClient client = new(
+        authenticationPolicy: tokenPolicy,
+        model: model,
+        options: new OpenAIClientOptions()
+        {
+            Endpoint = new($"{uri.Scheme}://{host}.openai.azure.com/openai/v1/"),
+        });
+
+    builder.Services.AddSingleton(client.AsIChatClient());
+}
+else if (llmProvider == LlmProvider.GitHubCopilot)
+{
+    var githubToken = config[Constants.GitHubToken];
+
+    builder.Services.AddSingleton(_ => new CopilotClient(new CopilotClientOptions
+    {
+        BaseDirectory = Path.Combine(Path.GetTempPath(), "interview-coach-copilot"),
+        GitHubToken = githubToken,
+        Mode = CopilotClientMode.Empty,
+        UseLoggedInUser = string.IsNullOrWhiteSpace(githubToken),
+    }));
 }
 else
 {
-    builder.AddOpenAIClient("chat")
-           .AddChatClient();
-
-    // var connection = new DbConnectionStringBuilder() { ConnectionString = config.GetConnectionString("foundry") };
-    // var endpoint = connection.TryGetValue("Endpoint", out var endpointValue) ? endpointValue?.ToString() : throw new InvalidOperationException("Missing Foundry Endpoint");
-    // // var accessKey = connection.TryGetValue("Key", out var accessKeyValue) ? accessKeyValue?.ToString() : throw new InvalidOperationException("Missing Foundry Key");
-    // var model = connection.TryGetValue("Model", out var modelValue) ? modelValue?.ToString() : throw new InvalidOperationException("Missing Foundry Model");
-    // var options = new OpenAIClientOptions() { Endpoint = new Uri(endpoint!) };
-    // var credential = new DefaultAzureCredential();
-    // var client = new OpenAIClient(new BearerTokenPolicy(credential, "https://ai.azure.com/.default"), options)
-    //                 .GetResponsesClient(model!)
-    //                 .AsIChatClient();
-
-    // builder.Services.AddSingleton<IChatClient>(client);
+    throw new NotSupportedException($"The specified LLM provider '{llmProvider}' is not supported.");
 }
 
-builder.AddAIAgent("coach");
+var agentBuilder = builder.AddAIAgent("coach");
 
 builder.Services.AddOpenAIResponses();
 builder.Services.AddOpenAIConversations();
 
-builder.Services.AddAGUI();
+// DevUI is intentionally configured for both development and production environments,
+// so that the DevUI can be used to inspect the agent's state and behavior in production scenarios.
+builder.Services.AddDevUI(options => options.AllowRemoteAccess = true);
+
+builder.Services.AddAGUIServer();
 
 var app = builder.Build();
 
@@ -114,18 +163,15 @@ app.MapDefaultEndpoints();
 app.MapOpenAIResponses();
 app.MapOpenAIConversations();
 
-app.MapAGUI(
-    pattern: "ag-ui",
-    aiAgent: app.Services.GetRequiredKeyedService<AIAgent>("coach")
-);
+app.MapAGUIServer(agentBuilder, "ag-ui");
+
+// DevUI is intentionally mapped for both development and production environments,
+// so that the DevUI can be used to inspect the agent's state and behavior in production scenarios.
+app.MapDevUI();
 
 if (builder.Environment.IsDevelopment() == false)
 {
     app.UseHttpsRedirection();
-}
-else
-{
-    app.MapDevUI();
 }
 
 // --- File Upload Endpoints ---
